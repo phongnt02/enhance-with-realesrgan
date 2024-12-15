@@ -161,10 +161,21 @@ class ImageEnhancer {
         }
     
         try {
-            const { tiles, originalSize } = await this.preprocessImage(imageElement);
-            const processedTiles = [];
+            console.time('Total processing');
             
-            for (const tile of tiles) {
+            // Preprocessing
+            console.time('Preprocessing');
+            const { tiles, originalSize } = await this.preprocessImage(imageElement);
+            console.timeEnd('Preprocessing');
+            console.log(`Number of tiles to process: ${tiles.length}`);
+    
+            // Inference
+            console.time('Inference');
+            const processedTiles = [];
+            for (let i = 0; i < tiles.length; i++) {
+                console.time(`Tile ${i+1}/${tiles.length}`);
+                
+                const tile = tiles[i];
                 const inputShape = [1, 3, tile.height, tile.width];
                 const feeds = { 
                     input: new ort.Tensor('float32', tile.tensor, inputShape)
@@ -180,9 +191,22 @@ class ImageEnhancer {
                     width: tile.width,
                     height: tile.height
                 });
+    
+                console.timeEnd(`Tile ${i+1}/${tiles.length}`);
+                if ((i + 1) % 10 === 0) {
+                    console.log(`Processed ${i + 1}/${tiles.length} tiles`);
+                }
             }
+            console.timeEnd('Inference');
+    
+            // Postprocessing
+            console.time('Postprocessing');
+            const result = await this.postprocessOutput(processedTiles, originalSize);
+            console.timeEnd('Postprocessing');
+    
+            console.timeEnd('Total processing');
             
-            return await this.postprocessOutput(processedTiles, originalSize);
+            return result;
             
         } catch (error) {
             console.error('[ImageEnhancer] Enhancement failed:', error);

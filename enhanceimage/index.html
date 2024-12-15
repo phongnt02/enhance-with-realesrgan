@@ -6,13 +6,14 @@
     <title>RealESRGAN Image Enhancer Test</title>
     
     <!-- Load ONNX Runtime -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <script>
-        // Configure ONNX Runtime paths before loading
+        // Cấu hình ONNX Runtime paths và features
         window.ortWasmBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm.wasm";
         window.ortWasmThreadedBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-threaded.wasm";
         window.ortWasmSimdBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd.wasm";
+        window.ortEnclaveSiWasmBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd.wasm";
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     
     <!-- Load our styles and scripts -->
     <link rel="stylesheet" href="./css/styles.css">
