@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Enhancer</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1 id="video-enhancer" style="text-align: center; margin-bottom: 20px;">Video Enhancer</h1>
+
+        <div id="dropZone" class="upload-area">
+            Drop your video file here or click to select
+            <input type="file" id="fileInput" accept="video/*" style="display: none;">
+        </div>
+
+        <div class="video-container">
+            <div class="video-box">
+                <h3>Original Video</h3>
+                <video id="originalVideo" controls></video>
+            </div>
+
+            <div class="video-box">
+                <h3>Enhanced Video</h3>
+                <video id="enhancedVideo" controls></video>
+            </div>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div id="progress" class="progress-fill"></div>
+        </div>
+
+        <div id="status" class="status">Ready to process</div>
+
+        <div class="button-container">
+            <button id="processButton" disabled>Process Video</button>
+            <button id="downloadButton" style="display: none;">Download Enhanced Video</button>
+        </div>
+    </div>
+
+    <script src="js/video-processor.js"></script>
+    <script type="module" src="js/main.js"></script>
+    <script type="module" src="js/video-processor.js"></script>
+</body>
+</html>

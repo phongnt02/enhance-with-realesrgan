@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealESRGAN Image Enhancer Test</title>
+    
+    <!-- Load ONNX Runtime -->
+    <script>
+        // Configure ONNX Runtime paths before loading
+        window.ortWasmBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm.wasm";
+        window.ortWasmThreadedBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-threaded.wasm";
+        window.ortWasmSimdBackendUrl = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd.wasm";
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    
+    <!-- Load our styles and scripts -->
+    <link rel="stylesheet" href="./css/styles.css">
+    <script src="./js/image-enhancer.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>RealESRGAN Image Enhancer Test</h1>
+        
+        <div id="error" class="error"></div>
+        
+        <div id="dropZone" class="upload-area">
+            Drop your image here or click to select
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+        </div>
+
+        <div id="status">Initializing model...</div>
+        <div id="loading" class="loading">Processing image... Please wait.</div>
+
+        <div class="image-container">
+            <div class="image-box">
+                <h3>Original Image</h3>
+                <img id="originalImage">
+            </div>
+            <div class="image-box">
+                <h3>Enhanced Image</h3>
+                <img id="enhancedImage">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize UI elements
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const loading = document.getElementById('loading');
+        const originalImage = document.getElementById('originalImage');
+        const enhancedImage = document.getElementById('enhancedImage');
+        const errorDiv = document.getElementById('error');
+
+        let enhancer = null;
+
+        // Initialize enhancer
+        async function initializeEnhancer() {
+            try {
+                enhancer = new ImageEnhancer();
+                await enhancer.initialize();
+                status.textContent = 'Model loaded. Ready to enhance images!';
+                errorDiv.style.display = 'none';
+            } catch (error) {
+                console.error('Initialization failed:', error);
+                errorDiv.textContent = 'Failed to initialize model: ' + error.message;
+                errorDiv.style.display = 'block';
+                status.textContent = 'Model initialization failed';
+            }
+        }
+
+        // Handle file selection
+        async function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                status.textContent = 'Please select an image file';
+                return;
+            }
+
+            try {
+                errorDiv.style.display = 'none';
+                loading.style.display = 'block';
+                status.textContent = 'Loading image...';
+
+                // Display original image
+                const imageUrl = URL.createObjectURL(file);
+                originalImage.src = imageUrl;
+
+                // Wait for image to load
+                await new Promise(resolve => originalImage.onload = resolve);
+                
+                status.textContent = 'Enhancing image...';
+                
+                // Enhance image
+                const enhancedImageUrl = await enhancer.enhance(originalImage);
+                enhancedImage.src = enhancedImageUrl;
+                
+                status.textContent = 'Enhancement complete!';
+
+            } catch (error) {
+                console.error('Enhancement failed:', error);
+                errorDiv.textContent = 'Enhancement failed: ' + error.message;
+                errorDiv.style.display = 'block';
+                status.textContent = 'Enhancement failed';
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Event Listeners
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFile(file);
+        });
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initializeEnhancer);
+    </script>
+</body>
+</html>

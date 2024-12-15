@@ -1,0 +1,142 @@
+/* styles.css */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #f5f7fa;
+    color: #2d3748;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+h1 {
+    text-align: center;
+    color: #1a365d;
+    font-size: 2.5rem;
+    margin-bottom: 2rem;
+    font-weight: 600;
+}
+
+.image-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 2rem;
+    margin-top: 2rem;
+}
+
+.image-box {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: transform 0.2s;
+}
+
+.image-box:hover {
+    transform: translateY(-5px);
+}
+
+.image-box h3 {
+    margin: 0;
+    padding: 1rem;
+    background: #2b6cb0;
+    color: white;
+    text-align: center;
+    font-weight: 500;
+}
+
+.image-box img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: contain;
+    background: #f7fafc;
+    min-height: 300px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.upload-area {
+    border: 3px dashed #4299e1;
+    padding: 3rem;
+    text-align: center;
+    cursor: pointer;
+    margin: 2rem 0;
+    background: white;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    font-size: 1.1rem;
+    color: #4a5568;
+}
+
+.upload-area:hover {
+    background: #ebf8ff;
+    border-color: #2b6cb0;
+}
+
+.upload-area.drag-over {
+    background-color: #ebf8ff;
+    border-color: #2b6cb0;
+    transform: scale(1.02);
+}
+
+#status {
+    margin: 1rem 0;
+    padding: 1rem;
+    background-color: white;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+    border: 1px solid #e2e8f0;
+}
+
+.loading {
+    display: none;
+    margin: 1.5rem 0;
+    text-align: center;
+    padding: 1rem;
+    background: #fffaf0;
+    border-radius: 8px;
+    color: #744210;
+    font-weight: 500;
+    animation: pulse 2s infinite;
+}
+
+.error {
+    color: #c53030;
+    padding: 1rem;
+    margin: 1rem 0;
+    background-color: #fff5f5;
+    border-radius: 8px;
+    display: none;
+    border: 1px solid #feb2b2;
+    font-weight: 500;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+    
+    h1 {
+        font-size: 2rem;
+    }
+    
+    .image-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .upload-area {
+        padding: 2rem 1rem;
+    }
+}
