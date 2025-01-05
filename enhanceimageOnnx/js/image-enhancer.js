@@ -27,11 +27,24 @@ class ImageEnhancer {
 
     async initialize() {
         if (this.initialized) return;
-
+    
         try {
             await this.waitForOrt();
-
-            // Enhanced ONNX session configuration
+            
+            // Kiểm tra WebGL support
+            const hasWebGL = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    return !!(window.WebGL2RenderingContext && 
+                             canvas.getContext('webgl2')) || 
+                           !!(window.WebGLRenderingContext && 
+                             canvas.getContext('webgl'));
+                } catch (e) {
+                    return false;
+                }
+            };
+    
+            // Vẫn giữ nguyên cấu hình ban đầu vì nó đã hoạt động tốt
             const options = {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all',
@@ -45,10 +58,20 @@ class ImageEnhancer {
                     }
                 }
             };
-
+    
+            // Nếu có WebGL, thêm một số tối ưu nhưng không thay đổi execution provider
+            if (hasWebGL()) {
+                options.extra.session = {
+                    ...options.extra.session,
+                    use_webgl: true,
+                    webgl_pack_unpack_optimizations: true
+                };
+                console.log('[ImageEnhancer] WebGL optimizations enabled');
+            }
+    
             console.log('[ImageEnhancer] Loading model...');
             this.session = await ort.InferenceSession.create(this.modelPath, options);
-
+            
             console.log('[ImageEnhancer] Model loaded successfully');
             this.initialized = true;
         } catch (error) {

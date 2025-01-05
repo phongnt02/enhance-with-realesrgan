@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-ESRGAN Upscaler</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .image-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .image-box {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .image-box img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        #status {
+            color: #666;
+            margin: 10px 0;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background: #ccc;
+        }
+
+        #progress {
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Real-ESRGAN Anime Video Upscaler</h1>
+        <div class="controls">
+            <input type="file" id="imageInput" accept="image/*">
+            <button id="upscaleBtn" disabled>Upscale</button>
+            <div id="progress"></div>
+        </div>
+        <div id="status">Model loading...</div>
+        <div class="image-container">
+            <div class="image-box">
+                <h3>Input Image</h3>
+                <img id="inputImage" />
+            </div>
+            <div class="image-box">
+                <h3>Upscaled Result</h3>
+                <img id="outputImage" />
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu@4.22.0/dist/tf-backend-webgpu.min.js"></script>
+    <script src="realesrgan.js"></script>
+    <script>
+        // Wait for everything to load
+        window.addEventListener('load', function() {
+            initApp().catch(console.error);
+        });
+        // Initialize application
+        async function initApp() {
+            const upscaler = new RealESRGAN();
+            const status = document.getElementById('status');
+            const upscaleBtn = document.getElementById('upscaleBtn');
+            const imageInput = document.getElementById('imageInput');
+            const inputImage = document.getElementById('inputImage');
+            const outputImage = document.getElementById('outputImage');
+            const progress = document.getElementById('progress');
+
+            // Set progress callback
+            upscaler.setProgressCallback((message) => {
+                progress.textContent = message;
+            });
+
+            try {
+                // Initialize model
+                await upscaler.initialize();
+                status.textContent = `Model loaded successfully (Backend: ${tf.getBackend()})`;
+                upscaleBtn.disabled = false;
+            } catch (error) {
+                status.textContent = `Failed to load model: ${error.message}`;
+                return;
+            }
+
+            // Handle image input
+            imageInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        inputImage.src = e.target.result;
+                        progress.textContent = '';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // Handle upscale button
+            upscaleBtn.addEventListener('click', async () => {
+                if (!inputImage.src) return;
+
+                status.textContent = 'Processing...';
+                upscaleBtn.disabled = true;
+                progress.textContent = 'Preparing...';
+
+                try {
+                    // Create temporary canvas
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCanvas.width = inputImage.naturalWidth;
+                    tempCanvas.height = inputImage.naturalHeight;
+                    tempCtx.drawImage(inputImage, 0, 0);
+
+                    // Process image
+                    const imageData = await upscaler.upscale(tempCanvas);
+
+                    // Display result
+                    const resultCanvas = document.createElement('canvas');
+                    resultCanvas.width = imageData.width;
+                    resultCanvas.height = imageData.height;
+                    const resultCtx = resultCanvas.getContext('2d');
+                    resultCtx.putImageData(imageData, 0, 0);
+
+                    outputImage.src = resultCanvas.toDataURL();
+                    status.textContent = 'Processing completed';
+                } catch (error) {
+                    console.error('Processing failed:', error);
+                    status.textContent = 'Processing failed: ' + error.message;
+                } finally {
+                    upscaleBtn.disabled = false;
+                    progress.textContent = '';
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
