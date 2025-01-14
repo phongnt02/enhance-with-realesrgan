@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebGPU Compatibility Checker</title>
+    <title>WebGPU & ONNX Runtime Compatibility Checker</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -44,22 +44,28 @@
             color: green;
             margin: 10px 0;
         }
+
+        .warning {
+            color: orange;
+            margin: 10px 0;
+        }
     </style>
 </head>
 
 <body>
-    <h1>WebGPU and TFJS Compatibility Checker</h1>
+    <h1>WebGPU, TFJS and ONNX Runtime Compatibility Checker</h1>
     <button id="checkButton">Run Compatibility Check</button>
     <div id="status"></div>
     <pre id="results"></pre>
 
-    <!-- Thay đổi cách load TFJS -->
+    <!-- Updated libraries -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
-    <!-- Thêm TFJS WebGPU backend -->
     <script
         src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu@4.17.0/dist/tf-backend-webgpu.js"></script>
+    <!-- Updated to latest ONNX Runtime Web -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort.min.js"></script>
 
-    <!-- Load Compatibility Checker -->
+    <!-- Compatibility Checker Code -->
     <script>
         class GPUCompatibilityChecker {
             constructor() {
@@ -76,6 +82,18 @@
                         backends: [],
                         webgpuBackend: false
                     },
+                    onnx: {
+                        supported: false,
+                        version: null,
+                        webgpuSupported: false,
+                        executionProviders: [],
+                        requirements: {
+                            maxBufferSize: 1073741824, // 1GB
+                            maxComputeWorkgroups: 65535,
+                            maxComputeInvocations: 256,
+                            minMemoryGB: 4
+                        }
+                    },
                     system: {
                         gpu: null,
                         memory: null,
@@ -86,26 +104,65 @@
 
             async checkWebGPU() {
                 try {
-                    // Check if WebGPU is available
                     if (!navigator.gpu) {
                         throw new Error("WebGPU is not supported in this browser");
                     }
 
-                    // Try to get adapter
-                    const adapter = await navigator.gpu.requestAdapter();
+                    // Request adapter với các options cụ thể hơn
+                    const adapter = await navigator.gpu.requestAdapter({
+                        powerPreference: 'high-performance',
+                        forceFallbackAdapter: false
+                    });
+
                     if (!adapter) {
                         throw new Error("Couldn't request WebGPU adapter");
                     }
 
-                    // Get adapter info
-                    this.results.webgpu.details = {
-                        name: await adapter.requestAdapterInfo().name,
-                        vendor: await adapter.requestAdapterInfo().vendor,
-                        architecture: await adapter.requestAdapterInfo().architecture
+                    // Lấy thông tin adapter một cách an toàn
+                    let adapterInfo = {
+                        vendor: 'Unknown',
+                        architecture: 'Unknown',
+                        name: 'Unknown'
                     };
 
-                    // Try to get device
-                    const device = await adapter.requestDevice();
+                    try {
+                        // Sử dụng adapter.name thay vì requestAdapterInfo
+                        adapterInfo.name = adapter.name;
+
+                        // Detect Intel Iris Xe từ WebGL info
+                        const canvas = document.createElement('canvas');
+                        const gl = canvas.getContext('webgl2');
+                        if (gl) {
+                            const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                            if (debugInfo) {
+                                const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                                if (renderer.includes('Iris') || renderer.includes('Intel')) {
+                                    adapterInfo.vendor = 'intel';
+                                    adapterInfo.name = 'Intel Iris Xe Graphics';
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Could not get detailed adapter info:', error);
+                    }
+
+                    // Set adapter info
+                    this.results.webgpu.details = adapterInfo;
+
+                    // Request device với các tính năng cụ thể cho Intel Iris Xe
+                    const device = await adapter.requestDevice({
+                        requiredFeatures: [],
+                        requiredLimits: {
+                            maxBufferSize: Math.min(2147483648, adapter.limits.maxBufferSize), // 2GB
+                            maxStorageBufferBindingSize: Math.min(2147483648, adapter.limits.maxStorageBufferBindingSize),
+                            maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
+                            maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
+                            maxComputeWorkgroupSizeX: adapter.limits.maxComputeWorkgroupSizeX,
+                            maxComputeWorkgroupSizeY: adapter.limits.maxComputeWorkgroupSizeY,
+                            maxComputeWorkgroupSizeZ: adapter.limits.maxComputeWorkgroupSizeZ
+                        }
+                    });
+
                     if (!device) {
                         throw new Error("Couldn't request WebGPU device");
                     }
@@ -114,14 +171,13 @@
                     this.results.webgpu.adapter = adapter;
                     this.results.webgpu.device = device;
 
-                    // Get limits and features
+                    // Cập nhật limits
                     this.results.webgpu.details.limits = {
-                        maxBufferSize: adapter.limits.maxBufferSize,
-                        maxComputeWorkgroupsPerDimension: adapter.limits.maxComputeWorkgroupsPerDimension,
-                        maxComputeInvocationsPerWorkgroup: adapter.limits.maxComputeInvocationsPerWorkgroup,
-                        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize
+                        maxBufferSize: adapter.limits?.maxBufferSize || 0,
+                        maxComputeWorkgroupsPerDimension: adapter.limits?.maxComputeWorkgroupsPerDimension || 0,
+                        maxComputeInvocationsPerWorkgroup: adapter.limits?.maxComputeInvocationsPerWorkgroup || 0,
+                        maxStorageBufferBindingSize: adapter.limits?.maxStorageBufferBindingSize || 0
                     };
-
                 } catch (error) {
                     this.results.webgpu.supported = false;
                     this.results.webgpu.error = error.message;
@@ -130,55 +186,187 @@
 
             async checkTFJS() {
                 try {
-                    // Đợi TFJS initialize
+                    // Tắt warning messages không cần thiết
+                    tf.env().set('DEBUG', false);
+
+                    // Khởi tạo TFJS với backend mặc định trước
+                    await tf.setBackend('webgl');
                     await tf.ready();
 
                     this.results.tfjs.supported = true;
                     this.results.tfjs.version = tf.version.tfjs;
+                    this.results.tfjs.backends = Object.keys(tf.engine().registry);
 
-                    // Kiểm tra backends available
-                    const backends = Object.keys(tf.engine().registry);
-                    this.results.tfjs.backends = backends;
-
-                    // Check WebGPU backend
-                    if (backends.includes('webgpu')) {
+                    // Chỉ thử WebGPU nếu browser hỗ trợ
+                    if (navigator.gpu && this.results.tfjs.backends.includes('webgpu')) {
                         try {
-                            await tf.setBackend('webgpu');
-                            const backend = tf.getBackend();
-                            this.results.tfjs.webgpuBackend = backend === 'webgpu';
+                            // Set timeout để tránh treo browser
+                            const webgpuPromise = new Promise(async (resolve, reject) => {
+                                try {
+                                    await tf.setBackend('webgpu');
+                                    resolve(true);
+                                } catch (e) {
+                                    reject(e);
+                                }
+                            });
+
+                            // Đặt timeout 5 giây
+                            const timeoutPromise = new Promise((_, reject) => {
+                                setTimeout(() => reject(new Error('WebGPU initialization timeout')), 5000);
+                            });
+
+                            // Race giữa initialization và timeout
+                            await Promise.race([webgpuPromise, timeoutPromise]);
+
+                            const currentBackend = tf.getBackend();
+                            this.results.tfjs.webgpuBackend = currentBackend === 'webgpu';
                         } catch (e) {
+                            console.warn('WebGPU backend initialization failed:', e);
+                            // Fallback to WebGL
+                            await tf.setBackend('webgl');
                             this.results.tfjs.webgpuBackend = false;
                             this.results.tfjs.webgpuError = e.message;
                         }
+                    } else {
+                        this.results.tfjs.webgpuBackend = false;
                     }
                 } catch (error) {
                     this.results.tfjs.supported = false;
                     this.results.tfjs.error = error.message;
+                    // Ensure we have a working backend
+                    try {
+                        await tf.setBackend('webgl');
+                    } catch (e) {
+                        console.warn('Fallback to WebGL failed:', e);
+                    }
                 }
             }
 
+            async checkONNXRuntime() {
+                try {
+                    // Kiểm tra ONNX Runtime có được load không
+                    if (typeof ort === 'undefined') {
+                        throw new Error("ONNX Runtime is not loaded");
+                    }
+
+                    // Khởi tạo ONNX Runtime
+                    await ort.env.wasm.wasmModule;
+
+                    // Lấy version
+                    this.results.onnx.version = ort.version?.version || "Unknown";
+                    this.results.onnx.supported = true;
+
+                    // Kiểm tra các providers có sẵn
+                    this.results.onnx.executionProviders = [];
+
+                    // Kiểm tra WebGPU
+                    if (this.results.webgpu.supported) {
+                        try {
+                            const webgpuFlags = ort.env.webgpu.flags;
+                            if (webgpuFlags) {
+                                this.results.onnx.executionProviders.push('webgpu');
+                                this.results.onnx.webgpuSupported = true;
+                            }
+                        } catch (e) {
+                            console.log('WebGPU provider check failed:', e);
+                        }
+                    }
+
+                    // Kiểm tra WebGL
+                    try {
+                        const glCanvas = document.createElement('canvas').getContext('webgl2');
+                        if (glCanvas) {
+                            this.results.onnx.executionProviders.push('webgl');
+                        }
+                    } catch (e) {
+                        console.log('WebGL provider check failed:', e);
+                    }
+
+                    // Thêm WASM provider (luôn có sẵn)
+                    this.results.onnx.executionProviders.push('wasm');
+
+                    // Check system requirements for RealESRGAN
+                    const requirements = this.results.onnx.requirements;
+                    const systemChecks = [];
+
+                    if (this.results.webgpu.supported) {
+                        const limits = this.results.webgpu.details.limits;
+                        if (limits.maxBufferSize < requirements.maxBufferSize) {
+                            systemChecks.push("Insufficient maxBufferSize");
+                        }
+                        if (limits.maxComputeWorkgroupsPerDimension < requirements.maxComputeWorkgroups) {
+                            systemChecks.push("Insufficient maxComputeWorkgroupsPerDimension");
+                        }
+                        if (limits.maxComputeInvocationsPerWorkgroup < requirements.maxComputeInvocations) {
+                            systemChecks.push("Insufficient maxComputeInvocationsPerWorkgroup");
+                        }
+                    }
+
+                    const memoryGB = navigator.deviceMemory || 0;
+                    if (memoryGB < requirements.minMemoryGB) {
+                        systemChecks.push(`Insufficient memory: ${memoryGB}GB < ${requirements.minMemoryGB}GB`);
+                    }
+
+                    this.results.onnx.systemChecks = systemChecks;
+                    this.results.onnx.meetsRequirements = systemChecks.length === 0;
+
+                } catch (error) {
+                    this.results.onnx.supported = false;
+                    this.results.onnx.error = error.message;
+                }
+            }
+
+            detectGPUVendor() {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+
+                if (!gl) {
+                    return 'Unknown';
+                }
+
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                if (!debugInfo) {
+                    return 'Unknown';
+                }
+
+                const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL).toLowerCase();
+                const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL).toLowerCase();
+
+                if (renderer.includes('nvidia') || vendor.includes('nvidia')) {
+                    return 'nvidia';
+                } else if (renderer.includes('intel') || vendor.includes('intel')) {
+                    return 'intel';
+                } else if (renderer.includes('amd') || vendor.includes('amd') ||
+                    renderer.includes('radeon') || vendor.includes('radeon')) {
+                    return 'amd';
+                }
+
+                return 'Unknown';
+            }
+
             async checkSystemInfo() {
-                // Get GPU info
                 if (navigator.gpu) {
-                    const adapter = await navigator.gpu.requestAdapter();
+                    const adapter = await navigator.gpu.requestAdapter({
+                        powerPreference: 'high-performance'
+                    });
                     if (adapter) {
-                        const info = await adapter.requestAdapterInfo();
-                        this.results.system.gpu = {
-                            name: info.name,
-                            vendor: info.vendor,
-                            architecture: info.architecture
+                        const vendor = this.detectGPUVendor();
+                        const gpuInfo = {
+                            name: 'Discrete GPU',
+                            vendor: vendor,
+                            architecture: 'Unknown'
                         };
+
+                        this.results.system.gpu = gpuInfo;
                     }
                 }
 
-                // Get memory info
                 if (navigator.deviceMemory) {
                     this.results.system.memory = {
                         deviceMemory: navigator.deviceMemory
                     };
                 }
 
-                // Get platform info
                 this.results.system.platform = {
                     userAgent: navigator.userAgent,
                     platform: navigator.platform,
@@ -186,41 +374,11 @@
                 };
             }
 
-            async checkModelCompatibility(modelUrl) {
-                if (!this.results.tfjs.supported || !this.results.tfjs.webgpuBackend) {
-                    return false;
-                }
-
-                try {
-                    // Try to load model
-                    const model = await tf.loadGraphModel(modelUrl);
-
-                    // Check if model can run on WebGPU
-                    await tf.setBackend('webgpu');
-
-                    // Try a dummy prediction
-                    const dummyInput = tf.zeros([1, 3, 64, 64]);
-                    await model.predict(dummyInput).data();
-
-                    dummyInput.dispose();
-                    model.dispose();
-
-                    return true;
-                } catch (error) {
-                    console.error("Model compatibility check failed:", error);
-                    return false;
-                }
-            }
-
-            async runAllChecks(modelUrl = null) {
+            async runAllChecks() {
                 await this.checkWebGPU();
                 await this.checkTFJS();
+                await this.checkONNXRuntime();
                 await this.checkSystemInfo();
-
-                if (modelUrl) {
-                    this.results.modelCompatible = await this.checkModelCompatibility(modelUrl);
-                }
-
                 return this.results;
             }
 
@@ -252,6 +410,24 @@
                     report.push(`Error: ${this.results.tfjs.error}`);
                 }
 
+                // ONNX Runtime Support
+                report.push("\n=== ONNX Runtime Support ===");
+                report.push(`Supported: ${this.results.onnx.supported}`);
+                if (this.results.onnx.supported) {
+                    report.push(`Version: ${this.results.onnx.version}`);
+                    report.push(`Available Providers: ${this.results.onnx.executionProviders.join(', ')}`);
+                    report.push(`WebGPU Support: ${this.results.onnx.webgpuSupported}`);
+                    report.push(`Meets RealESRGAN Requirements: ${this.results.onnx.meetsRequirements}`);
+                    if (this.results.onnx.systemChecks.length > 0) {
+                        report.push("System Requirement Issues:");
+                        this.results.onnx.systemChecks.forEach(check => {
+                            report.push(`  - ${check}`);
+                        });
+                    }
+                } else {
+                    report.push(`Error: ${this.results.onnx.error}`);
+                }
+
                 // System Info
                 report.push("\n=== System Information ===");
                 if (this.results.system.gpu) {
@@ -263,12 +439,6 @@
                 }
                 report.push(`CPU Threads: ${this.results.system.platform.hardwareConcurrency}`);
                 report.push(`Platform: ${this.results.system.platform.platform}`);
-
-                // Model Compatibility
-                if ('modelCompatible' in this.results) {
-                    report.push("\n=== Model Compatibility ===");
-                    report.push(`Model can run on WebGPU: ${this.results.modelCompatible}`);
-                }
 
                 return report.join('\n');
             }
@@ -283,20 +453,25 @@
 
             try {
                 status.innerHTML = '<div>Running compatibility checks...</div>';
-                // Đợi TFJS load xong
                 await tf.ready();
 
                 const checker = new GPUCompatibilityChecker();
                 await checker.runAllChecks();
 
-                // Display detailed report
                 results.textContent = checker.getDetailedReport();
 
-                // Show summary
-                if (checker.results.webgpu.supported && checker.results.tfjs.webgpuBackend) {
-                    status.innerHTML = '<div class="success">Your system supports WebGPU acceleration! ✅</div>';
+                // Show comprehensive status
+                const webgpuOk = checker.results.webgpu.supported;
+                const tfjsOk = checker.results.tfjs.webgpuBackend;
+                const onnxOk = checker.results.onnx.supported && checker.results.onnx.webgpuSupported;
+                const requirementsOk = checker.results.onnx.meetsRequirements;
+
+                if (webgpuOk && tfjsOk && onnxOk && requirementsOk) {
+                    status.innerHTML = '<div class="success">Your system fully supports WebGPU acceleration and meets all requirements for RealESRGAN! ✅</div>';
+                } else if (webgpuOk && tfjsOk && onnxOk) {
+                    status.innerHTML = '<div class="warning">Your system supports WebGPU but may not meet all requirements for optimal RealESRGAN performance ⚠️</div>';
                 } else {
-                    status.innerHTML = '<div class="error">Your system may not fully support WebGPU acceleration ⚠️</div>';
+                    status.innerHTML = '<div class="error">Your system may not fully support WebGPU acceleration or ONNX Runtime ⚠️</div>';
                 }
 
             } catch (error) {
