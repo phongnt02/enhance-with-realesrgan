@@ -4,6 +4,7 @@ export class EnhanceProcessor {
         this.initialized = false;
         this.modelPath = './model/realesrgan_web.onnx';
         this.inputShape = [1, 3, 256, 256];
+        this.deviceInfo = null;
     }
 
     async initialize() {
