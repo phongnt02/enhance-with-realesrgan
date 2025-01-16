@@ -29,6 +29,7 @@ export class VideoMetrics {
         }
 
         let mse = 0;
+        const epsilon = 1e-10;
         const data1 = img1.data;
         const data2 = img2.data;
 
@@ -39,12 +40,11 @@ export class VideoMetrics {
             mse += Math.pow(data1[i + 2] - data2[i + 2], 2); // B
         }
 
-        mse = mse / (img1.width * img1.height * 3);
+        mse = mse / (img1.width * img1.height * 3) + epsilon;
 
         if (mse === 0) return Infinity;
         const maxPixelValue = 255;
-        const psnr = 20 * Math.log10(maxPixelValue) - 10 * Math.log10(mse);
-        return psnr;
+        return 20 * Math.log10(255) - 10 * Math.log10(mse);
     }
 
     // Calculate SSIM between two ImageData objects
@@ -124,29 +124,47 @@ export class VideoMetrics {
         let totalSSIM = 0;
         const numFrames = Math.min(originalFrames.length, enhancedFrames.length);
         
-        console.log(`[VideoMetrics] Comparing frames - Original: ${originalFrames[0].data.width}x${originalFrames[0].data.height}, Enhanced: ${enhancedFrames[0].data.width}x${enhancedFrames[0].data.height}`);
+        // Baseline metrics (between consecutive original frames)
+        let baselinePSNR = 0;
+        let baselineSSIM = 0;
+        let validBaselineFrames = 0;
 
-        // Tính baseline metrics từ original frames
-        const baselineMetrics = this.calculateBaselineMetrics(originalFrames);
-        console.log('[VideoMetrics] Baseline metrics calculated');
+        // So sánh các frame liền kề trong video gốc
+        for (let i = 0; i < originalFrames.length - 1; i++) {
+            const psnr = this.calculatePSNR(originalFrames[i].data, originalFrames[i + 1].data);
+            const ssim = this.calculateSSIM(originalFrames[i].data, originalFrames[i + 1].data);
+            
+            if (psnr !== Infinity && !isNaN(psnr)) {
+                baselinePSNR += psnr;
+                validBaselineFrames++;
+            }
+            baselineSSIM += ssim;
+        }
 
-        // Tính metrics cho enhanced frames
+        // So sánh từng frame gốc với frame được enhance tương ứng 
         for (let i = 0; i < numFrames; i++) {
             const psnr = this.calculatePSNR(originalFrames[i].data, enhancedFrames[i].data);
             const ssim = this.calculateSSIM(originalFrames[i].data, enhancedFrames[i].data);
             
-            totalPSNR += psnr;
+            if (psnr !== Infinity && !isNaN(psnr)) {
+                totalPSNR += psnr;
+            }
             totalSSIM += ssim;
         }
 
+        const validBaselinePSNR = validBaselineFrames > 0 ? 
+            baselinePSNR / validBaselineFrames : 0;
+        const validBaselineSSIM = originalFrames.length > 1 ? 
+            baselineSSIM / (originalFrames.length - 1) : 0;
+
+        const validEnhancedPSNR = totalPSNR / numFrames;
+        const validEnhancedSSIM = totalSSIM / numFrames;
+
         return {
-            // Enhanced metrics
-            enhancedPSNR: totalPSNR / numFrames,
-            enhancedSSIM: totalSSIM / numFrames,
-            // Baseline metrics
-            baselinePSNR: baselineMetrics.averagePSNR,
-            baselineSSIM: baselineMetrics.averageSSIM,
-            // Size info
+            baselinePSNR: validBaselinePSNR,
+            baselineSSIM: validBaselineSSIM,
+            enhancedPSNR: validEnhancedPSNR,
+            enhancedSSIM: validEnhancedSSIM,
             originalSize: {
                 width: originalFrames[0].data.width,
                 height: originalFrames[0].data.height
