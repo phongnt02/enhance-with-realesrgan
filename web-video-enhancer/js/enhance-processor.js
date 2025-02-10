@@ -10,7 +10,11 @@ export class EnhanceProcessor {
         this.scale = 4;       // Scale factor
         this.maxSize = 2048 * 2048; // Tăng max size
         
+        this.batchSize = 2;
+        this.maxConcurrent = 2;
+        
         this.deviceInfo = this.getDeviceInfo();
+        this.previousTimestamp = null;
     }
 
     getDeviceInfo() {
@@ -233,58 +237,54 @@ export class EnhanceProcessor {
     async enhanceFrame(frame, frameIndex) {
         try {
             const startTime = performance.now();
-            console.log(`[EnhanceProcessor] Starting frame ${frameIndex} enhancement`);
             
-            // Preprocess frame into tiles
-            const preProcessStart = performance.now();
+            // Đảm bảo timing nhất quán giữa các frame
+            if (this.previousTimestamp && frame.timestamp) {
+                const expectedDelta = frame.timestamp - this.previousTimestamp;
+                const actualDelta = startTime - this.lastProcessTime;
+                if (actualDelta < expectedDelta) {
+                    await new Promise(resolve => setTimeout(resolve, expectedDelta - actualDelta));
+                }
+            }
+            
             const { tiles, originalSize } = await this.preprocessFrame(frame);
-            const preProcessTime = performance.now() - preProcessStart;
-            console.log(`[EnhanceProcessor] Frame ${frameIndex} preprocessing took: ${preProcessTime.toFixed(2)}ms`);
-            
-            // Process each tile
-            const inferenceStart = performance.now();
             const processedTiles = [];
             
             for (let i = 0; i < tiles.length; i++) {
-                const tileStart = performance.now();
-                
                 const tile = tiles[i];
                 const inputShape = [1, 3, this.tileSize, this.tileSize];
                 const feeds = { 
                     input: new ort.Tensor('float32', tile.tensor, inputShape)
                 };
-                
+
                 const outputs = await this.session.run(feeds);
-                const outputTensor = outputs.output.data;
-                
                 processedTiles.push({
-                    tensor: outputTensor,
+                    tensor: outputs.output.data,
                     x: tile.x,
                     y: tile.y,
                     width: tile.width,
                     height: tile.height
                 });
-
-                const tileTime = performance.now() - tileStart;
-                console.log(`[EnhanceProcessor] Frame ${frameIndex} - Tile ${i+1}/${tiles.length} took: ${tileTime.toFixed(2)}ms`);
             }
 
-            const inferenceTime = performance.now() - inferenceStart;
-            console.log(`[EnhanceProcessor] Frame ${frameIndex} inference took: ${inferenceTime.toFixed(2)}ms`);
+            // Process các tile theo thứ tự không gian để tránh artifacts
+            processedTiles.sort((a, b) => {
+                if (a.y === b.y) return a.x - b.x;
+                return a.y - b.y;
+            });
 
-            // Merge tiles back
-            const postProcessStart = performance.now();
             const enhancedImageData = await this.postprocessTiles(processedTiles, originalSize);
-            const postProcessTime = performance.now() - postProcessStart;
-            console.log(`[EnhanceProcessor] Frame ${frameIndex} postprocessing took: ${postProcessTime.toFixed(2)}ms`);
             
-            const totalTime = performance.now() - startTime;
-            console.log(`[EnhanceProcessor] Frame ${frameIndex} total processing took: ${totalTime.toFixed(2)}ms`);
+            // Cập nhật tracking timing
+            this.previousTimestamp = frame.timestamp;
+            this.lastProcessTime = performance.now();
             
             return {
                 data: enhancedImageData,
-                timestamp: frame.timestamp
+                timestamp: frame.timestamp,
+                originalTimestamp: frame.timestamp // Lưu lại timestamp gốc
             };
+
         } catch (error) {
             console.error(`[EnhanceProcessor] Frame ${frameIndex} enhancement failed:`, error);
             throw error;
@@ -297,43 +297,63 @@ export class EnhanceProcessor {
         }
 
         const totalFrames = frames.length;
-        console.log(`[EnhanceProcessor] Starting enhancement of ${totalFrames} frames`);
         const enhancedFrames = [];
         
-        // Tối ưu batch size và thêm worker pool
-        const batchSize = 2; // Giảm batch size để giảm memory pressure
-        const maxConcurrent = 2; // Giới hạn số lượng frame xử lý đồng thời
+        // Tính toán frame interval từ timestamps
+        const frameIntervals = [];
+        for (let i = 1; i < frames.length; i++) {
+            frameIntervals.push(frames[i].timestamp - frames[i-1].timestamp);
+        }
+        const averageInterval = frameIntervals.reduce((a, b) => a + b, 0) / frameIntervals.length;
         
-        for (let i = 0; i < frames.length; i += batchSize) {
+        console.log(`[EnhanceProcessor] Average frame interval: ${averageInterval.toFixed(2)}ms`);
+
+        // Reset timing tracking
+        this.previousTimestamp = null;
+        this.lastProcessTime = null;
+
+        for (let i = 0; i < frames.length; i += this.batchSize) {
             const batchStartTime = performance.now();
-            const batchNum = Math.floor(i/batchSize) + 1;
-            const batch = frames.slice(i, Math.min(i + batchSize, frames.length));
+            const batch = frames.slice(i, Math.min(i + this.batchSize, frames.length));
             
             try {
-                // Process batch với số lượng worker giới hạn
+                // Xử lý frame theo batch với timing control
                 const enhancedBatch = await Promise.all(
-                    batch.map((frame, idx) => this.enhanceFrame(frame, i + idx + 1))
-                                 .slice(0, maxConcurrent)
+                    batch.map(async (frame, idx) => {
+                        // Đảm bảo timing nhất quán trong batch
+                        if (idx > 0) {
+                            const targetDelay = averageInterval * idx;
+                            const currentDelay = performance.now() - batchStartTime;
+                            if (currentDelay < targetDelay) {
+                                await new Promise(resolve => setTimeout(resolve, targetDelay - currentDelay));
+                            }
+                        }
+                        return this.enhanceFrame(frame, i + idx + 1);
+                    })
                 );
+
                 enhancedFrames.push(...enhancedBatch);
 
-                const progress = ((i + batch.length) / totalFrames * 100);
                 if (progressCallback) {
+                    const progress = ((i + batch.length) / totalFrames * 100);
                     progressCallback(progress);
                 }
 
+                // Đảm bảo timing giữa các batch
                 const batchTime = performance.now() - batchStartTime;
-                console.log(`[EnhanceProcessor] Batch ${batchNum} took: ${batchTime.toFixed(2)}ms`);
-                console.log(`[EnhanceProcessor] Progress: ${progress.toFixed(1)}% (${i + batch.length}/${totalFrames} frames)`);
-
-                // Thêm delay nhỏ giữa các batch để cho phép GC chạy
-                await new Promise(resolve => setTimeout(resolve, 100));
+                const targetBatchTime = averageInterval * batch.length;
+                if (batchTime < targetBatchTime) {
+                    await new Promise(resolve => setTimeout(resolve, targetBatchTime - batchTime));
+                }
 
             } catch (error) {
-                console.error(`[EnhanceProcessor] Error processing batch ${batchNum}:`, error);
+                console.error(`[EnhanceProcessor] Error processing batch ${Math.floor(i/this.batchSize) + 1}:`, error);
                 throw error;
             }
         }
+
+        // Sort theo timestamp gốc để đảm bảo thứ tự đúng
+        enhancedFrames.sort((a, b) => a.originalTimestamp - b.originalTimestamp);
 
         console.log('[EnhanceProcessor] Enhancement completed successfully');
         return enhancedFrames;
